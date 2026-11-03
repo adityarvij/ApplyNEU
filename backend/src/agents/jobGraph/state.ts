@@ -16,6 +16,7 @@ export const JobGraphState = Annotation.Root({
   job_id: Annotation<string>,
   match_score: Annotation<number | null>({ reducer: (_, next) => next, default: () => null }),
   rationale: Annotation<string | null>({ reducer: (_, next) => next, default: () => null }),
+  instruction_ids: Annotation<string[]>({ reducer: (_, next) => next, default: () => [] }),
   decision: Annotation<JobDecision | null>({ reducer: (_, next) => next, default: () => null }),
   requires_approval: Annotation<boolean>({ reducer: (_, next) => next, default: () => false }),
   graph_version: Annotation<number>({ reducer: (_, next) => next, default: () => GRAPH_VERSION }),

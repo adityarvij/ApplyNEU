@@ -12,7 +12,7 @@ const { jobGraph, runJobThread } = await import('../../src/agents/jobGraph/graph
 const { GRAPH_VERSION } = await import('../../src/agents/jobGraph/state.ts');
 
 beforeEach(() => {
-  jobMatch.mockReset().mockResolvedValue({ match_score: 72, rationale: 'Good fit.' });
+  jobMatch.mockReset().mockResolvedValue({ match_score: 72, rationale: 'Good fit.', instruction_ids: ['instruction-1'] });
   decide.mockReset().mockResolvedValue({ decision: 'APPLY', requires_approval: true });
 });
 
@@ -27,6 +27,7 @@ describe('runJobThread', () => {
       job_id: 'job-1',
       match_score: 72,
       rationale: 'Good fit.',
+      instruction_ids: ['instruction-1'],
       decision: 'APPLY',
       requires_approval: true,
       graph_version: GRAPH_VERSION,

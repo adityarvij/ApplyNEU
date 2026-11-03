@@ -88,6 +88,48 @@ export const getInstructions = async (description_hash: string): Promise<Employe
 };
 
 /**
+ * Returns the ids of the instructions stored for this posting text under the current
+ * EXTRACTION_VERSION in extraction order, or null when it hasn't been extracted yet. Reads
+ * Postgres only, since the ids are what a job's thread keeps, and a read failure is thrown so
+ * the node calling it retries instead of keeping no instructions.
+ */
+export const getInstructionIds = async (description_hash: string): Promise<string[] | null> => {
+  const result = await pool.query(
+    `
+      SELECT i.instruction_id
+      FROM instruction_extractions e
+      LEFT JOIN job_instructions i
+        ON i.description_hash = e.description_hash AND i.extraction_version = e.extraction_version
+      WHERE e.description_hash = $1 AND e.extraction_version = $2
+      ORDER BY i.source, i.position;
+    `,
+    [description_hash, EXTRACTION_VERSION]
+  );
+  if (!result.rows.length) return null;
+  return result.rows.filter((row) => row.instruction_id !== null).map((row) => row.instruction_id);
+};
+
+/**
+ * Loads the instructions with these ids in the order given, whatever version they were
+ * extracted under, so a thread keeps the steps it decided on after a re-extraction.
+ */
+export const getInstructionsByIds = async (
+  instruction_ids: string[]
+): Promise<(EmployerInstruction & { instruction_id: string })[]> => {
+  if (!instruction_ids.length) return [];
+  const result = await pool.query(
+    `
+      SELECT i.instruction_id, i.kind, i.instruction, i.description
+      FROM unnest($1::uuid[]) WITH ORDINALITY AS wanted(instruction_id, position)
+      JOIN job_instructions i ON i.instruction_id = wanted.instruction_id
+      ORDER BY wanted.position;
+    `,
+    [instruction_ids]
+  );
+  return result.rows;
+};
+
+/**
  * Stores a posting's extracted instructions under the current EXTRACTION_VERSION: the header
  * and one job_instructions row per step, in one statement so neither is written without the
  * other. The first write wins, since the steps are only inserted under a header this

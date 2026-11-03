@@ -3,10 +3,9 @@ import { startAgent, startJobId } from '../../agents/scheduler.ts';
 import { AppError } from '../../errors/AppError.ts';
 import { getAgentsQueue } from '../../queues/agentsQueue.ts';
 import type { AgentRunStatus } from '../../types/agentRuns.ts';
-import { normalizeAndHash } from '../../utils/hash.ts';
 import { getActiveJobRun, getAgentRun } from '../agentRun/agentRun.service.ts';
-import { getInstructions } from '../instructions/instructions.service.ts';
-import { addJob, getJobById } from '../job.service.ts';
+import { getInstructionsByIds } from '../instructions/instructions.service.ts';
+import { addJob } from '../job.service.ts';
 
 const SETTLED: AgentRunStatus[] = ['done', 'waiting_for_you'];
 
@@ -41,7 +40,7 @@ const rateLimitWait = async (run_id: string) => {
 
 /**
  * Reports one of the caller's job runs. A run that ended or paused on the user comes with the
- * thread's decision, score, rationale and the posting's employer instructions; a running run
+ * thread's decision, score, rationale and the employer instructions the thread kept; a running run
  * waiting out the user's model rate limit comes with retry_after in seconds.
  * @throws AppError(404) when the run doesn't exist, isn't a job run, or belongs to someone else
  */
@@ -51,11 +50,8 @@ export const getJobAnalysis = async (run_id: string, user_id: string) => {
   if (run.status === 'running') return { run_id, status: run.status, retry_after: await rateLimitWait(run_id) };
   if (!SETTLED.includes(run.status)) return { run_id, status: run.status };
 
-  const [{ values }, job] = await Promise.all([
-    jobGraph.getState({ configurable: { thread_id: run.thread_id! } }),
-    getJobById(run.job_id!),
-  ]);
-  const employer_instructions = await getInstructions(normalizeAndHash(job.description));
+  const { values } = await jobGraph.getState({ configurable: { thread_id: run.thread_id! } });
+  const employer_instructions = await getInstructionsByIds(values.instruction_ids ?? []);
   return {
     run_id,
     status: run.status,
@@ -63,6 +59,6 @@ export const getJobAnalysis = async (run_id: string, user_id: string) => {
     match_score: values.match_score,
     rationale: values.rationale,
     requires_approval: values.requires_approval,
-    employer_instructions: employer_instructions ?? [],
+    employer_instructions,
   };
 };

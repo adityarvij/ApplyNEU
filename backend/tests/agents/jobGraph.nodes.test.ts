@@ -4,19 +4,23 @@ const getJobById = jest.fn<(job_id: string) => Promise<any>>();
 const getUserPreferences = jest.fn<(user_id: string) => Promise<any>>();
 const sendJobDescription = jest.fn<(...args: string[]) => Promise<any>>();
 const decideFromScore = jest.fn<(match_score: number, job_match: string) => string>();
+const getInstructionIds = jest.fn<(description_hash: string) => Promise<string[] | null>>();
 
 jest.unstable_mockModule('../../src/services/job.service.ts', () => ({ getJobById }));
 jest.unstable_mockModule('../../src/services/preference.service.ts', () => ({ getUserPreferences }));
 jest.unstable_mockModule('../../src/services/jobMatch/jobMatch.service.ts', () => ({ sendJobDescription, decideFromScore }));
+jest.unstable_mockModule('../../src/services/instructions/instructions.service.ts', () => ({ getInstructionIds }));
 
 const { jobMatch, decide } = await import('../../src/agents/jobGraph/nodes.ts');
 const { GRAPH_VERSION } = await import('../../src/agents/jobGraph/state.ts');
+const { normalizeAndHash } = await import('../../src/utils/hash.ts');
 
 const state = (overrides = {}) => ({
   user_id: 'user-1',
   job_id: 'job-1',
   match_score: null,
   rationale: null,
+  instruction_ids: [],
   decision: null,
   requires_approval: false,
   graph_version: GRAPH_VERSION,
@@ -28,6 +32,7 @@ beforeEach(() => {
   getUserPreferences.mockReset().mockResolvedValue({ job_match: 'medium', wait_for_approval: true });
   sendJobDescription.mockReset().mockResolvedValue({ decision: 'APPLY', match_score: 72, rationale: 'Good fit.', employer_instructions: [] });
   decideFromScore.mockReset().mockReturnValue('APPLY');
+  getInstructionIds.mockReset().mockResolvedValue(['instruction-1', 'instruction-2']);
 });
 
 describe('jobMatch', () => {
@@ -36,7 +41,27 @@ describe('jobMatch', () => {
 
     expect(getJobById).toHaveBeenCalledWith('job-1');
     expect(sendJobDescription).toHaveBeenCalledWith('user-1', 'Build things.', 'Acme', 'SWE Co-op');
-    expect(update).toEqual({ match_score: 72, rationale: 'Good fit.' });
+    expect(update).toEqual({ match_score: 72, rationale: 'Good fit.', instruction_ids: ['instruction-1', 'instruction-2'] });
+  });
+
+  it("keeps the ids of the posting's stored instructions", async () => {
+    await jobMatch(state());
+
+    expect(getInstructionIds).toHaveBeenCalledWith(normalizeAndHash('Build things.'));
+  });
+
+  it('keeps no ids when the posting requires nothing', async () => {
+    getInstructionIds.mockResolvedValue([]);
+
+    const update = await jobMatch(state());
+
+    expect(update).toMatchObject({ instruction_ids: [] });
+  });
+
+  it('throws when the instructions were not stored, so the node is retried', async () => {
+    getInstructionIds.mockResolvedValue(null);
+
+    await expect(jobMatch(state())).rejects.toThrow('Instructions for job job-1 were not stored.');
   });
 });
 

@@ -1,13 +1,12 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { AppError } from '../../src/errors/AppError.ts';
-import { normalizeAndHash } from '../../src/utils/hash.ts';
 
 const addJob = jest.fn<(company: string, title: string, description: string) => Promise<any>>();
 const getJobById = jest.fn<(job_id: string) => Promise<any>>();
 const startAgent = jest.fn<(run: any) => Promise<any>>();
 const getActiveJobRun = jest.fn<(user_id: string, job_id: string) => Promise<any>>();
 const getAgentRun = jest.fn<(run_id: string) => Promise<any>>();
-const getInstructions = jest.fn<(description_hash: string) => Promise<any>>();
+const getInstructionsByIds = jest.fn<(instruction_ids: string[]) => Promise<any>>();
 const getState = jest.fn<(config: any) => Promise<any>>();
 const getJob = jest.fn<(id: string) => Promise<any>>();
 
@@ -16,7 +15,7 @@ jest.unstable_mockModule('../../src/agents/scheduler.ts', () => ({
   startAgent, startJobId: (run_id: string) => `start:${run_id}`,
 }));
 jest.unstable_mockModule('../../src/services/agentRun/agentRun.service.ts', () => ({ getActiveJobRun, getAgentRun }));
-jest.unstable_mockModule('../../src/services/instructions/instructions.service.ts', () => ({ getInstructions }));
+jest.unstable_mockModule('../../src/services/instructions/instructions.service.ts', () => ({ getInstructionsByIds }));
 jest.unstable_mockModule('../../src/agents/jobGraph/graph.ts', () => ({ jobGraph: { getState } }));
 jest.unstable_mockModule('../../src/queues/agentsQueue.ts', () => ({ getAgentsQueue: () => ({ getJob }) }));
 
@@ -26,9 +25,10 @@ const USER_ID = 'user-1';
 const DESCRIPTION = 'Build things.';
 const JOB = { job_id: 'job-1', company: 'Acme', title: 'SWE Co-op', description: DESCRIPTION };
 const RUN = { run_id: 'run-1', type: 'job', user_id: USER_ID, job_id: 'job-1', thread_id: 'thread-1', status: 'queued' };
-const INSTRUCTIONS = [{ kind: 'other', instruction: 'Email Acme recruiting', description: 'jobs@acme.example' }];
+const INSTRUCTIONS = [{ instruction_id: 'instruction-1', kind: 'other', instruction: 'Email Acme recruiting', description: 'jobs@acme.example' }];
 const VALUES = {
-  user_id: USER_ID, job_id: 'job-1', match_score: 72, rationale: 'Good fit.', decision: 'APPLY', requires_approval: true,
+  user_id: USER_ID, job_id: 'job-1', match_score: 72, rationale: 'Good fit.', instruction_ids: ['instruction-1'],
+  decision: 'APPLY', requires_approval: true,
 };
 
 const analyze = () => analyzeJob(USER_ID, DESCRIPTION, 'Acme', 'SWE Co-op');
@@ -39,7 +39,7 @@ beforeEach(() => {
   startAgent.mockReset().mockResolvedValue(RUN);
   getActiveJobRun.mockReset().mockResolvedValue(null);
   getAgentRun.mockReset().mockResolvedValue({ ...RUN, status: 'done' });
-  getInstructions.mockReset().mockResolvedValue(INSTRUCTIONS);
+  getInstructionsByIds.mockReset().mockResolvedValue(INSTRUCTIONS);
   getState.mockReset().mockResolvedValue({ values: VALUES, next: [] });
   getJob.mockReset().mockResolvedValue(undefined);
 });
@@ -80,13 +80,13 @@ describe('analyzeJob', () => {
 });
 
 describe('getJobAnalysis', () => {
-  it.each(['done', 'waiting_for_you'])("answers a %s run from the thread's state with the posting's instructions", async (status) => {
+  it.each(['done', 'waiting_for_you'])("answers a %s run from the thread's state with the instructions it kept", async (status) => {
     getAgentRun.mockResolvedValue({ ...RUN, status });
 
     const result = await getJobAnalysis('run-1', USER_ID);
 
     expect(getState).toHaveBeenCalledWith({ configurable: { thread_id: 'thread-1' } });
-    expect(getInstructions).toHaveBeenCalledWith(normalizeAndHash(DESCRIPTION));
+    expect(getInstructionsByIds).toHaveBeenCalledWith(['instruction-1']);
     expect(result).toEqual({
       run_id: 'run-1',
       status,
@@ -98,11 +98,13 @@ describe('getJobAnalysis', () => {
     });
   });
 
-  it('returns no instructions when the memo has none', async () => {
-    getInstructions.mockResolvedValue(null);
+  it('looks up no instructions for a thread saved before it kept their ids', async () => {
+    getState.mockResolvedValue({ values: { ...VALUES, instruction_ids: undefined }, next: [] });
+    getInstructionsByIds.mockResolvedValue([]);
 
     const result = await getJobAnalysis('run-1', USER_ID);
 
+    expect(getInstructionsByIds).toHaveBeenCalledWith([]);
     expect(result).toMatchObject({ employer_instructions: [] });
   });
 

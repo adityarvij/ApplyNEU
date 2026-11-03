@@ -14,7 +14,7 @@ jest.unstable_mockModule('../../src/db/index.ts', () => ({
     pool: { query },
 }));
 
-const { destinationDomain, getInstructions, saveInstructions } = await import('../../src/services/instructions/instructions.service.ts');
+const { destinationDomain, getInstructionIds, getInstructions, getInstructionsByIds, saveInstructions } = await import('../../src/services/instructions/instructions.service.ts');
 const { EXTRACTION_VERSION } = await import('../../src/services/instructions/instructions.prompt.ts');
 
 const HASH = 'abc123';
@@ -127,6 +127,73 @@ describe('getInstructions', () => {
         query.mockRejectedValue(new Error('connection lost'));
 
         await expect(getInstructions(HASH)).resolves.toBeNull();
+    });
+});
+
+describe('getInstructionIds', () => {
+    it('looks up the posting hash under the current extraction version, in extraction order', async () => {
+        query.mockResolvedValue({ rows: [] });
+
+        await getInstructionIds(HASH);
+
+        const [text, params] = lastCall();
+        expect(text).toContain('FROM instruction_extractions');
+        expect(text).toContain('ORDER BY i.source, i.position');
+        expect(params).toEqual([HASH, EXTRACTION_VERSION]);
+    });
+
+    it('returns null when the posting has no extraction header', async () => {
+        query.mockResolvedValue({ rows: [] });
+
+        await expect(getInstructionIds(HASH)).resolves.toBeNull();
+    });
+
+    it('returns the stored ids in order', async () => {
+        query.mockResolvedValue({ rows: [{ instruction_id: 'instruction-1' }, { instruction_id: 'instruction-2' }] });
+
+        await expect(getInstructionIds(HASH)).resolves.toEqual(['instruction-1', 'instruction-2']);
+    });
+
+    it('returns an empty array, not null, for a header with no steps', async () => {
+        query.mockResolvedValue({ rows: [{ instruction_id: null }] });
+
+        await expect(getInstructionIds(HASH)).resolves.toEqual([]);
+    });
+
+    it('reads postgres even when redis has the instructions', async () => {
+        redisStore.set(`instructions:${EXTRACTION_VERSION}:${HASH}`, JSON.stringify(INSTRUCTIONS));
+        query.mockResolvedValue({ rows: [{ instruction_id: 'instruction-1' }] });
+
+        await getInstructionIds(HASH);
+
+        expect(query).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws a read failure instead of treating it as a miss', async () => {
+        query.mockRejectedValue(new Error('connection lost'));
+
+        await expect(getInstructionIds(HASH)).rejects.toThrow('connection lost');
+    });
+});
+
+describe('getInstructionsByIds', () => {
+    it('loads the instructions in the order of the ids', async () => {
+        const rows = [{ instruction_id: 'instruction-2', ...INSTRUCTIONS[0] }];
+        query.mockResolvedValue({ rows });
+
+        await expect(getInstructionsByIds(['instruction-2', 'instruction-1'])).resolves.toEqual(rows);
+
+        const [text, params] = lastCall();
+        expect(text).toContain('WITH ORDINALITY');
+        expect(text).toContain('ORDER BY wanted.position');
+        expect(text).not.toContain('extraction_version');
+        expect(params).toEqual([['instruction-2', 'instruction-1']]);
+    });
+
+    it('skips the query when there are no ids', async () => {
+        await expect(getInstructionsByIds([])).resolves.toEqual([]);
+
+        expect(query).not.toHaveBeenCalled();
     });
 });
 

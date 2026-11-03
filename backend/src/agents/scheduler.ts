@@ -52,7 +52,8 @@ type StartAgent = {
 
 /**
  * Starts an agent in the background: records a queued run at the back of the user's line and
- * enqueues its start only once it has a slot under the user's num_agents limit.
+ * enqueues its start only once it has a slot under the user's num_agents limit. A job run
+ * doesn't need a slot, so its start is enqueued right away.
  */
 export const startAgent = async (run: StartAgent) => {
   const created = await createAgentRun({ ...run, status: 'queued' });

@@ -11,8 +11,8 @@ const SETTLED: AgentRunStatus[] = ['done', 'waiting_for_you'];
 
 /**
  * Queues the posting's job run for the caller, or returns the active one when an earlier analyze
- * already queued it. The run waits for a free slot under the user's num_agents limit, so the
- * caller polls getJobAnalysis for the result.
+ * already queued it. Job runs don't wait for one of the user's num_agents slots, so the worker
+ * picks it up straight away; the caller polls getJobAnalysis for the result.
  * @throws AppError(409) when the active run finished between the insert and the lookup
  */
 export const analyzeJob = async (user_id: string, job_description: string, company: string, title: string) => {

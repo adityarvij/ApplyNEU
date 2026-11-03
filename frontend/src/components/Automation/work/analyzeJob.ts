@@ -12,8 +12,7 @@ export type JobAnalysis =
   | { ok: false; status: number; retryAfter?: number }
 
 /**
- * Queues the posting's analysis and waits until the backend's agent has run it. The run waits
- * for one of the user's agent slots, so the sweep stalls here while their agents are busy. A
+ * Queues the posting's analysis and waits until the backend's agent has run it. A
  * rate limit short enough to sit through is waited out; a longer one cancels the run and comes
  * back as a 429 so the caller can stop.
  */
@@ -22,7 +21,6 @@ export const analyzeJob = async (body: { job_description: string; company: strin
   if (!resp.ok) return { ok: false, status: resp.status, retryAfter: retryAfterSeconds(resp) }
   const { run_id } = await resp.json()
 
-  let loggedBusy = false
   let loggedLimit = false
   while (true) {
     const poll = await api.get(`/me/jobs/analyze/${run_id}`)
@@ -38,9 +36,6 @@ export const analyzeJob = async (body: { job_description: string; company: strin
       }
       if (!loggedLimit) addLog(`Rate limited. Waiting ${formatWait(data.retry_after)} before retrying...`)
       loggedLimit = true
-    } else if (data.status === 'queued' && !loggedBusy) {
-      addLog('All your agents are busy. Waiting for one to free up...')
-      loggedBusy = true
     }
     await sleep(POLL_MS)
   }

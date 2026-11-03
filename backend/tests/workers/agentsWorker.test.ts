@@ -7,6 +7,7 @@ class Command {
 }
 
 let processor: (job: any, token?: string) => Promise<unknown>;
+let workerOptions: { concurrency?: number };
 const handlers: Record<string, (...args: any[]) => Promise<void>> = {};
 
 const runJobThread = jest.fn<(thread_id: string, input: any) => Promise<unknown>>();
@@ -23,8 +24,9 @@ jest.unstable_mockModule('bullmq', () => ({
     DelayedError,
     UnrecoverableError,
     Worker: class {
-        constructor(_name: string, fn: typeof processor) {
+        constructor(_name: string, fn: typeof processor, opts: typeof workerOptions) {
             processor = fn;
+            workerOptions = opts;
         }
         on(event: string, handler: (...args: any[]) => Promise<void>) {
             handlers[event] = handler;
@@ -42,6 +44,9 @@ jest.unstable_mockModule('../../src/services/agentRun/agentRun.service.ts', () =
 }));
 jest.unstable_mockModule('../../src/utils/shutdown.ts', () => ({ onShutdownSignal: jest.fn(), runShutdown: jest.fn() }));
 
+// Set before the import so a local backend/.env can't change the default under test; dotenv
+// never overrides a variable that's already set.
+process.env.AGENTS_CONCURRENCY = '';
 await import('../../src/workers/agentsWorker.ts');
 const { AppError } = await import('../../src/errors/AppError.ts');
 
@@ -187,5 +192,11 @@ describe('failed', () => {
         await handlers.failed!({ name: 'wake', id: 'repeat:wake', data: {}, attemptsMade: 1, opts: {} }, new Error('redis down'));
 
         expect(moveAgentRun).not.toHaveBeenCalled();
+    });
+});
+
+describe('worker options', () => {
+    it('runs up to 50 agent jobs at once by default, well above any user\'s num_agents', () => {
+        expect(workerOptions.concurrency).toBe(50);
     });
 });

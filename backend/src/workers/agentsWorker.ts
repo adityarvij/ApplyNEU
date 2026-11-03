@@ -81,6 +81,13 @@ const resume = async (job: Job, token?: string) => {
 };
 
 /**
+ * How many agent jobs this worker process runs at once, across every user. It only protects the
+ * process: each user's own limit is num_agents, enforced by their line, so this has to be well
+ * above it or one user's runs hold back everyone else's, including the sweep's job.
+ */
+const CONCURRENCY = Number(process.env.AGENTS_CONCURRENCY) || 50;
+
+/**
  * Runs agent threads that were handed one of their user's slots; a run is only enqueued once it
  * holds one, and one cancelled since is dropped. A start runs the graph from the beginning; a
  * resume continues a paused thread with the value the user gave, handed to the paused node as
@@ -102,7 +109,7 @@ const worker = new Worker(AGENTS_QUEUE, async (job, token) => {
     }
 }, {
     connection: bullConnection,
-    concurrency: 5,
+    concurrency: CONCURRENCY,
 });
 
 scheduleWakeStalledAgents().catch((err) => {

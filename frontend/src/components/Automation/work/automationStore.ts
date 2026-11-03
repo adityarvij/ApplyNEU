@@ -6,7 +6,7 @@ import { suppressErrorRedirect, releaseErrorRedirect } from '../../../lib/fetchE
 
 export type RunStatus = 'idle' | 'running' | 'paused' | 'error'
 
-export type SearchTermsBlocker = 'no-resume' | 'preparing' | 'unavailable'
+export type SearchTermsBlocker = 'no-resume' | 'preparing' | 'enrichment-failed' | 'unavailable'
 
 export type AutomationState = {
   status: RunStatus

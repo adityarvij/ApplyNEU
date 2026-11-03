@@ -1,7 +1,11 @@
 import { api } from '../../../lib/api'
 
 export type CandidateContext = {
-  resume: { resume_text: string; search_terms: string[] } | null
+  resume: {
+    resume_text: string
+    search_terms: string[]
+    enrichment_status?: 'none' | 'pending' | 'failed' | 'complete'
+  } | null
   preferences: {
     job_match: string
     wait_for_approval: boolean

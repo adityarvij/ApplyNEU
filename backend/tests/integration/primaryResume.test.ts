@@ -136,6 +136,15 @@ describeWithDatabase('primary resume against Postgres', () => {
         expect(context.resume?.resume_text).toBe('text of older.pdf');
     });
 
+    it("getCandidateContext returns the chosen resume's enrichment status", async () => {
+        await setPrimary(user, older);
+        await db.pool.query(`UPDATE resumes SET search_terms = '{}', enrichment_status = 'failed' WHERE resume_id = $1`, [older]);
+
+        const context = await getCandidateContext(user);
+
+        expect(context.resume).toMatchObject({ search_terms: [], enrichment_status: 'failed' });
+    });
+
     it('getCandidateContext falls back to the newest when no primary is set', async () => {
         const context = await getCandidateContext(user);
 

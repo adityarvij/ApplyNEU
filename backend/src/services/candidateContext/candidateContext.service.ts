@@ -16,6 +16,7 @@ export const getCandidateContext = async (user_id: string): Promise<CandidateCon
             SELECT r.resume_id,
                    r.resume_text,
                    r.search_terms,
+                   r.enrichment_status,
                    pref.job_match,
                    pref.wait_for_approval,
                    pref.job_types,
@@ -26,7 +27,7 @@ export const getCandidateContext = async (user_id: string): Promise<CandidateCon
             FROM profile p
             JOIN preferences pref ON pref.user_id = p.user_id
             LEFT JOIN LATERAL (
-                SELECT resume_id, resume_text, search_terms
+                SELECT resume_id, resume_text, search_terms, enrichment_status
                 FROM resumes
                 WHERE user_id = p.user_id AND upload_complete = true
                 ORDER BY (resume_id = pref.primary_resume_id) DESC NULLS LAST, created_at DESC
@@ -41,7 +42,7 @@ export const getCandidateContext = async (user_id: string): Promise<CandidateCon
         const row = result.rows[0];
         return {
             resume: row.resume_id
-                ? { resume_text: row.resume_text, search_terms: row.search_terms }
+                ? { resume_text: row.resume_text, search_terms: row.search_terms, enrichment_status: row.enrichment_status }
                 : null,
             preferences: {
                 job_match: row.job_match,

@@ -59,6 +59,7 @@ const candidateContext = (
     resume: {
         resume_text: 'Backend engineer. Node, Postgres, TypeScript.',
         search_terms: ['backend'],
+        enrichment_status: 'complete',
     },
     preferences: {
         job_match: 'high',
@@ -191,7 +192,7 @@ describe('sendJobDescription', () => {
 
             query.mockClear();
             getCandidateContext.mockResolvedValue(
-                candidateContext({ resume: { resume_text: 'Frontend engineer. React.', search_terms: [] } })
+                candidateContext({ resume: { resume_text: 'Frontend engineer. React.', search_terms: [], enrichment_status: 'complete' } })
             );
             await analyze();
 
@@ -216,7 +217,7 @@ describe('sendJobDescription', () => {
             expect(create).not.toHaveBeenCalled();
 
             getCandidateContext.mockResolvedValue(
-                candidateContext({ resume: { resume_text: 'Frontend engineer. React.', search_terms: [] } })
+                candidateContext({ resume: { resume_text: 'Frontend engineer. React.', search_terms: [], enrichment_status: 'complete' } })
             );
             const result = await analyze();
 
@@ -340,7 +341,7 @@ describe('sendJobDescription', () => {
 
     it('throws 404 Resume not found when the resume text is empty', async () => {
         getCandidateContext.mockResolvedValue(
-            candidateContext({ resume: { resume_text: '', search_terms: [] } })
+            candidateContext({ resume: { resume_text: '', search_terms: [], enrichment_status: 'complete' } })
         );
 
         await expect(analyze()).rejects.toMatchObject({ status: 404, message: 'Resume not found.' });

@@ -38,6 +38,11 @@ const newJob = async () => {
     return job.job_id as string;
 };
 
+/** A run that waits for one of the user's slots. */
+const queuedRun = async (user_id: string) =>
+    createAgentRun({ user_id, type: 'external_apply', title: 'Apply @ Acme', job_id: await newJob() });
+
+/** A sweep's job run, which never waits for a slot. */
 const queuedJobRun = async (user_id: string) =>
     createAgentRun({ user_id, type: 'job', title: 'SWE @ Acme', job_id: await newJob() });
 
@@ -47,8 +52,8 @@ const statusOf = async (run_id: string) => (await getAgentRun(run_id)).status;
 /** A user at num_agents 1 whose first run is paused on them and second run holds the slot. */
 const pausedBehindRunning = async () => {
     const user = await newUser(1);
-    const paused = await queuedJobRun(user);
-    const running = await queuedJobRun(user);
+    const paused = await queuedRun(user);
+    const running = await queuedRun(user);
     await wakeNextRuns(user);
     await moveAgentRun(paused.run_id, ['running'], 'waiting_for_you');
     return { user, paused, running };
@@ -57,7 +62,7 @@ const pausedBehindRunning = async () => {
 describeWithDatabase('agent line against Postgres', () => {
     it('hands out up to num_agents slots in arrival order and leaves the rest queued', async () => {
         const user = await newUser(2);
-        const runs = [await queuedJobRun(user), await queuedJobRun(user), await queuedJobRun(user)];
+        const runs = [await queuedRun(user), await queuedRun(user), await queuedRun(user)];
 
         expect(ids(await wakeNextRuns(user)).sort()).toEqual(ids(runs.slice(0, 2)).sort());
         expect(await statusOf(runs[2]!.run_id)).toBe('queued');
@@ -66,26 +71,26 @@ describeWithDatabase('agent line against Postgres', () => {
 
     it('defaults to 15 running agents at once', async () => {
         const user = await newUser();
-        for (let i = 0; i < 16; i += 1) await queuedJobRun(user);
+        for (let i = 0; i < 16; i += 1) await queuedRun(user);
 
         expect(await wakeNextRuns(user)).toHaveLength(15);
     });
 
     it('does not count other users\' runs', async () => {
         const busy = await newUser(1);
-        await queuedJobRun(busy);
+        await queuedRun(busy);
         await wakeNextRuns(busy);
 
         const other = await newUser(1);
-        const run = await queuedJobRun(other);
+        const run = await queuedRun(other);
         expect(ids(await wakeNextRuns(other))).toEqual([run.run_id]);
     });
 
     it('hands a finished run\'s slot to the head of the line in the same move', async () => {
         const user = await newUser(1);
-        const first = await queuedJobRun(user);
-        const second = await queuedJobRun(user);
-        const third = await queuedJobRun(user);
+        const first = await queuedRun(user);
+        const second = await queuedRun(user);
+        const third = await queuedRun(user);
         await wakeNextRuns(user);
 
         const { moved, woken } = await moveAgentRun(first.run_id, ['running'], 'done');
@@ -104,7 +109,7 @@ describeWithDatabase('agent line against Postgres', () => {
 
     it('puts an answered resume back in line ahead of starts that queued before it', async () => {
         const { user, paused, running } = await pausedBehindRunning();
-        const earlier = await queuedJobRun(user);
+        const earlier = await queuedRun(user);
 
         expect(await answerAgentRun(paused.thread_id!, 'approval', { approved: true })).toEqual([]);
         const { woken } = await moveAgentRun(running.run_id, ['running'], 'done');
@@ -117,11 +122,11 @@ describeWithDatabase('agent line against Postgres', () => {
 
     it('serves answered resumes in the order they were answered', async () => {
         const user = await newUser(2);
-        const runs = [await queuedJobRun(user), await queuedJobRun(user)];
+        const runs = [await queuedRun(user), await queuedRun(user)];
         await wakeNextRuns(user);
         await moveAgentRun(runs[1]!.run_id, ['running'], 'waiting_for_you');
         await moveAgentRun(runs[0]!.run_id, ['running'], 'waiting_for_you');
-        const blockers = [await queuedJobRun(user), await queuedJobRun(user)];
+        const blockers = [await queuedRun(user), await queuedRun(user)];
         await wakeNextRuns(user);
 
         await answerAgentRun(runs[1]!.thread_id!, 'approval', { approved: true });
@@ -132,7 +137,7 @@ describeWithDatabase('agent line against Postgres', () => {
 
     it('resumes an answered run straight away when a slot is free', async () => {
         const user = await newUser(1);
-        const run = await queuedJobRun(user);
+        const run = await queuedRun(user);
         await wakeNextRuns(user);
         await moveAgentRun(run.run_id, ['running'], 'waiting_for_you');
 
@@ -153,8 +158,8 @@ describeWithDatabase('agent line against Postgres', () => {
 
     it('hands a failed run\'s slot on', async () => {
         const user = await newUser(1);
-        const first = await queuedJobRun(user);
-        const second = await queuedJobRun(user);
+        const first = await queuedRun(user);
+        const second = await queuedRun(user);
         await wakeNextRuns(user);
 
         const { woken } = await moveAgentRun(first.run_id, ['queued', 'running', 'waiting_for_you'], 'failed');
@@ -164,8 +169,8 @@ describeWithDatabase('agent line against Postgres', () => {
 
     it('hands a cancelled run\'s slot on', async () => {
         const user = await newUser(1);
-        const first = await queuedJobRun(user);
-        const second = await queuedJobRun(user);
+        const first = await queuedRun(user);
+        const second = await queuedRun(user);
         await wakeNextRuns(user);
 
         const { run, woken } = await cancelAgentRun(first.run_id, user);
@@ -176,7 +181,7 @@ describeWithDatabase('agent line against Postgres', () => {
 
     it('takes a cancelled run out of line and leaves it cancelled', async () => {
         const user = await newUser(1);
-        const run = await queuedJobRun(user);
+        const run = await queuedRun(user);
         await cancelAgentRun(run.run_id, user);
 
         expect(await wakeNextRuns(user)).toEqual([]);
@@ -186,7 +191,7 @@ describeWithDatabase('agent line against Postgres', () => {
 
     it('refuses to cancel a finished run or someone else\'s', async () => {
         const user = await newUser();
-        const run = await queuedJobRun(user);
+        const run = await queuedRun(user);
 
         await expect(cancelAgentRun(run.run_id, await newUser())).rejects.toMatchObject({ status: 404 });
         await moveAgentRun(run.run_id, ['queued'], 'done');
@@ -195,16 +200,59 @@ describeWithDatabase('agent line against Postgres', () => {
 
     it('safety net: wakes a line whose hand-off was lost and re-lists runs already holding a slot', async () => {
         const user = await newUser(2);
-        const holding = await queuedJobRun(user);
+        const holding = await queuedRun(user);
         await wakeNextRuns(user);
-        const stranded = await queuedJobRun(user);
-        const waiting = await queuedJobRun(user);
-        const inline = await createAgentRun({ user_id: await newUser(), type: 'job', title: 'a', job_id: await newJob(), status: 'running' });
+        const stranded = await queuedRun(user);
+        const waiting = await queuedRun(user);
+        const inline = await createAgentRun({ user_id: await newUser(), type: 'external_apply', title: 'a', job_id: await newJob(), status: 'running' });
 
         const woken = ids(await wakeStalledRuns());
 
         expect(woken.sort()).toEqual([holding.run_id, stranded.run_id].sort());
         expect(woken).not.toContain(inline.run_id);
         expect(await statusOf(waiting.run_id)).toBe('queued');
+    });
+
+    it('starts a job run straight away when every slot is taken', async () => {
+        const user = await newUser(1);
+        const holding = await queuedRun(user);
+        await wakeNextRuns(user);
+        const waiting = await queuedRun(user);
+        const job = await queuedJobRun(user);
+
+        expect(ids(await wakeNextRuns(user))).toEqual([job.run_id]);
+        expect(await statusOf(holding.run_id)).toBe('running');
+        expect(await statusOf(waiting.run_id)).toBe('queued');
+    });
+
+    it('does not count running job runs toward num_agents', async () => {
+        const user = await newUser(1);
+        await queuedJobRun(user);
+        await queuedJobRun(user);
+        await wakeNextRuns(user);
+        const run = await queuedRun(user);
+
+        expect(ids(await wakeNextRuns(user))).toEqual([run.run_id]);
+    });
+
+    it('resumes an answered job run while every slot is taken', async () => {
+        const user = await newUser(1);
+        const job = await queuedJobRun(user);
+        await wakeNextRuns(user);
+        await moveAgentRun(job.run_id, ['running'], 'waiting_for_you');
+        await queuedRun(user);
+        await wakeNextRuns(user);
+
+        expect(ids(await answerAgentRun(job.thread_id!, 'approval', { approved: true }))).toEqual([job.run_id]);
+    });
+
+    it('safety net: wakes a stranded job run for a user whose slots are full', async () => {
+        const user = await newUser(1);
+        const holding = await queuedRun(user);
+        await wakeNextRuns(user);
+        const job = await queuedJobRun(user);
+
+        expect(ids(await wakeStalledRuns()).sort()).toEqual([holding.run_id, job.run_id].sort());
+        expect(await statusOf(job.run_id)).toBe('running');
     });
 });

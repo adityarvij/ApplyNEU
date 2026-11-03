@@ -99,15 +99,15 @@ describe('model call rate limit during a run', () => {
   })
 })
 
-describe('agent slots during a run', () => {
-  it('stalls the sweep while the run is queued and applies once it finishes', async () => {
+describe('polling the run', () => {
+  it('keeps polling until the run finishes and applies, without waiting on agent slots', async () => {
     polls.queue = [{ status: 'queued', retry_after: null }, { status: 'running' }]
 
     const { logs, analyzed, applications } = await run()
 
     expect(analyzed).toBe(1)
     expect(applications).toBeGreaterThan(0)
-    expect(logs.filter(l => l.includes('All your agents are busy. Waiting for one to free up...'))).toHaveLength(1)
+    expect(logs.some(l => l.includes('All your agents are busy'))).toBe(false)
   })
 
   it('skips the job when its run fails', async () => {

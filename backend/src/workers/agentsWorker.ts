@@ -48,7 +48,7 @@ const RATE_LIMIT_RETRY_MS = 15_000;
 
 /**
  * Runs a graph step, parking the job until the user's model rate limit resets instead of spending
- * an attempt on it. The run keeps its slot, and retry_at is recorded so the analyze poll can report
+ * an attempt on it. A run that holds a slot keeps it, and retry_at is recorded so the analyze poll can report
  * the wait.
  */
 const runStep = async (job: Job, token: string | undefined, step: () => Promise<unknown>) => {

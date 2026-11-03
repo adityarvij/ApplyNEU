@@ -201,20 +201,29 @@ const lockLine = (client: PoolClient, user_id: string) =>
 /**
  * Gives each of the user's free slots to the next run in line and moves it to running. Runs
  * waiting on the user don't hold a slot. The line is every queued run plus every paused run the
- * user has answered: answered resumes first, then by queued_at. Call with the line locked.
+ * user has answered: answered resumes first, then by queued_at. Job runs skip the line and
+ * never hold a slot, because the sweep works one job at a time in its own NUWorks window; only
+ * the runs that work by themselves share num_agents. Call with the line locked.
  * @returns the runs that took a slot, whose jobs the caller enqueues after commit
  */
 const fillSlots = async (client: PoolClient, user_id: string): Promise<WokenRun[]> => {
   const result = await client.query<WokenRun>(
     `
-      WITH next AS (
-        SELECT run_id FROM agent_runs
+      WITH line AS (
+        SELECT run_id, type, resume, queued_at FROM agent_runs
         WHERE user_id = $1 AND (status = 'queued' OR (status = 'waiting_for_you' AND resume IS NOT NULL))
-        ORDER BY resume IS NULL, queued_at, run_id
-        LIMIT GREATEST(
-          COALESCE((SELECT num_agents FROM preferences WHERE user_id = $1), 15)
-            - (SELECT count(*) FROM agent_runs WHERE user_id = $1 AND status = 'running'),
-          0
+      ),
+      next AS (
+        SELECT run_id FROM line WHERE type = 'job'
+        UNION ALL
+        (
+          SELECT run_id FROM line WHERE type <> 'job'
+          ORDER BY resume IS NULL, queued_at, run_id
+          LIMIT GREATEST(
+            COALESCE((SELECT num_agents FROM preferences WHERE user_id = $1), 15)
+              - (SELECT count(*) FROM agent_runs WHERE user_id = $1 AND status = 'running' AND type <> 'job'),
+            0
+          )
         )
       )
       UPDATE agent_runs SET status = 'running', updated_at = now()
@@ -322,8 +331,11 @@ export const wakeStalledRuns = async (): Promise<WokenRun[]> => {
       SELECT DISTINCT line.user_id
       FROM agent_runs line
       WHERE (line.status = 'queued' OR (line.status = 'waiting_for_you' AND line.resume IS NOT NULL))
-        AND (SELECT count(*) FROM agent_runs r WHERE r.user_id = line.user_id AND r.status = 'running')
-          < COALESCE((SELECT num_agents FROM preferences p WHERE p.user_id = line.user_id), 15);
+        AND (
+          line.type = 'job'
+          OR (SELECT count(*) FROM agent_runs r WHERE r.user_id = line.user_id AND r.status = 'running' AND r.type <> 'job')
+            < COALESCE((SELECT num_agents FROM preferences p WHERE p.user_id = line.user_id), 15)
+        );
     `
   );
   for (const { user_id } of users) await wakeNextRuns(user_id);

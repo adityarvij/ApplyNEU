@@ -46,6 +46,24 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  agents-worker:
+    build: ./backend
+    init: true
+    command: ['node', '--import', 'tsx', 'src/workers/agentsWorker.ts']
+    env_file:
+      - path: ./backend/.env
+        format: raw
+    environment:
+      NODE_ENV: development
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # Lets the worker finish the graph step it's on, which can include a model call, before
+    # Docker kills it.
+    stop_grace_period: 60s
+
   redis:
     image: redis:8-alpine
     ports:

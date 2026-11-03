@@ -68,7 +68,7 @@ export const listHumanRequests = async (user_id: string, status?: HumanRequestSt
         FROM human_requests
         WHERE user_id = $1
           AND ($2::human_request_status IS NULL OR status = $2)
-          AND NOT (status = 'pending' AND expires_at <= now())
+          AND (status <> 'pending' OR expires_at IS NULL OR expires_at > now())
         ORDER BY created_at DESC
         LIMIT $3;
       `,

@@ -12,7 +12,7 @@ const authenticate = jest.fn((req: any, _res: any, next: any) => {
 
 jest.unstable_mockModule('../../src/services/agentRun/agentRun.service.ts', () => ({ listAgentRuns }));
 jest.unstable_mockModule('../../src/agents/scheduler.ts', () => ({ cancelAgent }));
-jest.unstable_mockModule('../../src/services/jobRun/jobRun.service.ts', () => ({ analyzeJob: jest.fn() }));
+jest.unstable_mockModule('../../src/services/jobRun/jobRun.service.ts', () => ({ analyzeJob: jest.fn(), getJobAnalysis: jest.fn() }));
 jest.unstable_mockModule('../../src/controller/middleware/authenticate.ts', () => ({
   authenticate: (req: any, res: any, next: any) => authenticate(req, res, next),
 }));

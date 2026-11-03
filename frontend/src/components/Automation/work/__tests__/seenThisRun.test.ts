@@ -11,12 +11,13 @@ vi.mock('../../../../lib/api', () => {
           preferences: { job_match: 'medium', wait_for_approval: false, job_types: ['Co-op'], unpaid_roles: false, recent_jobs: true, interests: [] },
           profile: { grad_year: 2027 },
         })
+        if (path.includes('/jobs/analyze/')) return json({ run_id: 'r1', status: 'done', decision: 'APPLY', employer_instructions: [] })
         if (path.includes('/tasks')) return json([])
         return json({})
       }),
       post: vi.fn(async (path: string) => {
         if (path.includes('/jobs/add')) return json({ job_id: 'j1' })
-        if (path.includes('/jobs/analyze')) return json({ decision: 'APPLY', employer_instructions: [] })
+        if (path.includes('/jobs/analyze')) return json({ run_id: 'r1', status: 'queued' })
         if (path.includes('/applications')) return json({ application_id: 'a1' })
         return json({})
       }),

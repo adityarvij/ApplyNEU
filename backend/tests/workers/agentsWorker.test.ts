@@ -1,11 +1,12 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
+class DelayedError extends Error {}
 class UnrecoverableError extends Error {}
 class Command {
     constructor(public args: { resume: unknown }) {}
 }
 
-let processor: (job: any) => Promise<unknown>;
+let processor: (job: any, token?: string) => Promise<unknown>;
 const handlers: Record<string, (...args: any[]) => Promise<void>> = {};
 
 const runJobThread = jest.fn<(thread_id: string, input: any) => Promise<unknown>>();
@@ -19,6 +20,7 @@ const wakeStalledAgents = jest.fn<() => Promise<void>>();
 const scheduleWakeStalledAgents = jest.fn<() => Promise<unknown>>().mockResolvedValue({});
 
 jest.unstable_mockModule('bullmq', () => ({
+    DelayedError,
     UnrecoverableError,
     Worker: class {
         constructor(_name: string, fn: typeof processor) {
@@ -41,10 +43,13 @@ jest.unstable_mockModule('../../src/services/agentRun/agentRun.service.ts', () =
 jest.unstable_mockModule('../../src/utils/shutdown.ts', () => ({ onShutdownSignal: jest.fn(), runShutdown: jest.fn() }));
 
 await import('../../src/workers/agentsWorker.ts');
+const { AppError } = await import('../../src/errors/AppError.ts');
 
 const RUN = { run_id: 'run-1', type: 'job', user_id: 'user-1', job_id: 'job-1', thread_id: 'thread-1', status: 'running' };
 const NEXT = [{ run_id: 'run-2', thread_id: 'thread-2', resume: null }];
-const startJob = () => ({ name: 'start', id: 'start:run-1', data: { run_id: 'run-1' }, attemptsMade: 0, opts: { attempts: 3 } });
+const moveToDelayed = jest.fn<(ts: number, token?: string) => Promise<void>>();
+const updateData = jest.fn<(data: unknown) => Promise<void>>();
+const startJob = () => ({ name: 'start', id: 'start:run-1', data: { run_id: 'run-1' }, moveToDelayed, updateData, attemptsMade: 0, opts: { attempts: 3 } });
 const resumeJob = { name: 'resume', id: 'thread-1:approval', data: { thread_id: 'thread-1', value: { approved: true } }, attemptsMade: 0, opts: { attempts: 3 } };
 
 beforeEach(() => {
@@ -56,6 +61,8 @@ beforeEach(() => {
     moveAgentRun.mockReset().mockResolvedValue({ moved: true, woken: NEXT });
     enqueueWokenRuns.mockReset().mockResolvedValue();
     wakeStalledAgents.mockReset().mockResolvedValue();
+    moveToDelayed.mockReset().mockResolvedValue();
+    updateData.mockReset().mockResolvedValue();
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -93,6 +100,24 @@ describe('start', () => {
 
         expect(runJobThread).not.toHaveBeenCalled();
         expect(moveAgentRun).not.toHaveBeenCalled();
+    });
+
+    it('parks a rate-limited start until the limit resets, keeping its slot, and records when', async () => {
+        const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+        runJobThread.mockRejectedValue(new AppError(429, 'Too many requests.', 30));
+
+        await expect(processor(startJob(), 'token')).rejects.toBeInstanceOf(DelayedError);
+        expect(updateData).toHaveBeenCalledWith({ run_id: 'run-1', retry_at: 1_030_000 });
+        expect(moveToDelayed).toHaveBeenCalledWith(1_030_000, 'token');
+        expect(moveAgentRun).not.toHaveBeenCalled();
+        now.mockRestore();
+    });
+
+    it('rethrows other graph errors so BullMQ retries them', async () => {
+        runJobThread.mockRejectedValue(new AppError(502, 'Error with API.'));
+
+        await expect(processor(startJob(), 'token')).rejects.toMatchObject({ status: 502 });
+        expect(moveToDelayed).not.toHaveBeenCalled();
     });
 
     it('fails a run type that has no graph yet', async () => {

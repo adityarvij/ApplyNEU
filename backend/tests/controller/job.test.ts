@@ -4,6 +4,7 @@ import { AppError } from '../../src/errors/AppError.ts';
 
 const analyzeJob =
   jest.fn<(user_id: string, job_description: string, company?: string, title?: string) => Promise<any>>();
+const getJobAnalysis = jest.fn<(run_id: string, user_id: string) => Promise<any>>();
 const addJob = jest.fn<(company: string, title: string, description: string) => Promise<any>>();
 
 const authenticate = jest.fn((req: any, _res: any, next: any) => {
@@ -17,6 +18,7 @@ jest.unstable_mockModule('../../src/services/job.service.ts', () => ({
 
 jest.unstable_mockModule('../../src/services/jobRun/jobRun.service.ts', () => ({
   analyzeJob,
+  getJobAnalysis,
 }));
 
 jest.unstable_mockModule('../../src/controller/middleware/authenticate.ts', () => ({
@@ -37,6 +39,7 @@ const rejectAuth = () =>
 
 beforeEach(() => {
   analyzeJob.mockReset();
+  getJobAnalysis.mockReset();
   addJob.mockReset();
   authenticate.mockReset();
   authenticate.mockImplementation((req: any, _res: any, next: any) => {
@@ -48,17 +51,15 @@ beforeEach(() => {
 describe('POST /me/jobs/analyze', () => {
   const url = '/me/jobs/analyze';
 
-  it('returns 200 and the decision from the job thread on valid input', async () => {
-    const decision = {
-      decision: 'APPLY', match_score: 72, rationale: 'Good fit.', requires_approval: true, employer_instructions: [],
-    };
+  it('returns 202 and the queued run on valid input', async () => {
+    const decision = { run_id: 'run-1', status: 'queued' };
     analyzeJob.mockResolvedValue(decision);
 
     const res = await request(app)
       .post(url)
       .send({ job_description: JOB_DESCRIPTION, company: COMPANY, title: TITLE });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(res.body).toEqual(decision);
     expect(analyzeJob).toHaveBeenCalledWith(USER_ID, JOB_DESCRIPTION, COMPANY, TITLE);
   });
@@ -93,18 +94,18 @@ describe('POST /me/jobs/analyze', () => {
   });
 
   it('trims surrounding whitespace from company and title before calling the service', async () => {
-    analyzeJob.mockResolvedValue({ decision: 'APPLY' });
+    analyzeJob.mockResolvedValue({ run_id: 'run-1', status: 'queued' });
 
     const res = await request(app)
       .post(url)
       .send({ job_description: JOB_DESCRIPTION, company: '  Acme  ', title: '  Software Engineer  ' });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(analyzeJob).toHaveBeenCalledWith(USER_ID, JOB_DESCRIPTION, COMPANY, TITLE);
   });
 
   it('ignores extra body fields and only forwards the known ones', async () => {
-    analyzeJob.mockResolvedValue({ decision: 'APPLY' });
+    analyzeJob.mockResolvedValue({ run_id: 'run-1', status: 'queued' });
 
     const res = await request(app)
       .post(url)
@@ -116,7 +117,7 @@ describe('POST /me/jobs/analyze', () => {
         salary: 123456,
       });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(analyzeJob).toHaveBeenCalledWith(USER_ID, JOB_DESCRIPTION, COMPANY, TITLE);
   });
 
@@ -153,13 +154,13 @@ describe('POST /me/jobs/analyze', () => {
   });
 
   it('trims surrounding whitespace from job_description before calling the service', async () => {
-    analyzeJob.mockResolvedValue({ decision: 'APPLY' });
+    analyzeJob.mockResolvedValue({ run_id: 'run-1', status: 'queued' });
 
     const res = await request(app)
       .post(url)
       .send({ job_description: `  ${JOB_DESCRIPTION}  `, company: COMPANY, title: TITLE });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(analyzeJob).toHaveBeenCalledWith(USER_ID, JOB_DESCRIPTION, COMPANY, TITLE);
   });
 
@@ -225,6 +226,47 @@ describe('POST /me/jobs/analyze', () => {
 
     expect(res.status).toBe(500);
     expect(res.body.message).toBe('Internal server error.');
+  });
+});
+
+describe('GET /me/jobs/analyze/:run_id', () => {
+  const RUN_ID = '3f1c2a4e-8b7d-4c6a-9e2f-1a2b3c4d5e6f';
+  const url = `/me/jobs/analyze/${RUN_ID}`;
+
+  it("returns 200 and the run's analysis for the caller", async () => {
+    const analysis = { run_id: RUN_ID, status: 'done', decision: 'APPLY', match_score: 72, employer_instructions: [] };
+    getJobAnalysis.mockResolvedValue(analysis);
+
+    const res = await request(app).get(url);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(analysis);
+    expect(getJobAnalysis).toHaveBeenCalledWith(RUN_ID, USER_ID);
+  });
+
+  it('returns 400 when run_id is not a UUID', async () => {
+    const res = await request(app).get('/me/jobs/analyze/not-a-uuid');
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe('run_id must be a UUID.');
+    expect(getJobAnalysis).not.toHaveBeenCalled();
+  });
+
+  it('propagates a 404 from the service', async () => {
+    getJobAnalysis.mockRejectedValue(new AppError(404, 'Agent run not found.'));
+
+    const res = await request(app).get(url);
+
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 401 when the token is rejected', async () => {
+    rejectAuth();
+
+    const res = await request(app).get(url);
+
+    expect(res.status).toBe(401);
+    expect(getJobAnalysis).not.toHaveBeenCalled();
   });
 });
 

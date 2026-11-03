@@ -16,7 +16,7 @@ const JOB_OPTIONS = {
 
 const WAKE_EVERY_MS = 60_000;
 
-const startJobId = (run_id: string) => `start:${run_id}`;
+export const startJobId = (run_id: string) => `start:${run_id}`;
 
 /**
  * A resume's job id is `${thread_id}:${step}`, so the same pause is resumed once, while the
@@ -52,8 +52,7 @@ type StartAgent = {
 
 /**
  * Starts an agent in the background: records a queued run at the back of the user's line and
- * enqueues its start only once it has a slot under the user's num_agents limit. The job the
- * sweep is on doesn't come through here; its thread runs inline in the analyze request (#149).
+ * enqueues its start only once it has a slot under the user's num_agents limit.
  */
 export const startAgent = async (run: StartAgent) => {
   const created = await createAgentRun({ ...run, status: 'queued' });

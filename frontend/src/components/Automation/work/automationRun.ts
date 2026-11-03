@@ -22,7 +22,8 @@ import { requestApprovalForJob, withHumanFallback } from './approval'
 import { retry, sleep, waitForResume } from './pacing'
 import { loadUserPreferences, prefersRecentJobs, allowsUnpaidRoles } from './preferences'
 import { loadCandidateContext } from './candidateContext'
-import { formatWait, postWithRateLimit, retryAfterSeconds } from './rateLimit'
+import { formatWait, postWithRateLimit } from './rateLimit'
+import { analyzeJob } from './analyzeJob'
 
 const jobKey = (company: unknown, title: unknown) =>
   `${String(company ?? '').trim().toLowerCase()}::${String(title ?? '').trim().toLowerCase()}`
@@ -535,13 +536,13 @@ const runFromDashboard = async (webview: AutomationWebview) => {
               addLog('Decision skipped (no user).')
             } else {
               addLog(`Reviewing ${titleStr}...`)
-              const resp = await postWithRateLimit('/me/jobs/analyze', {
+              const analysis = await analyzeJob({
                 job_description: descResult || '',
                 company: companyName,
                 title: jobTitle
               })
-              if (resp.ok) {
-                const data = await resp.json()
+              if (analysis.ok) {
+                const { data } = analysis
                 const instructions = normalizeEmployerInstructions(data?.employer_instructions)
                 void instructions
                 if (data.decision === 'APPLY') {
@@ -1466,12 +1467,12 @@ const runFromDashboard = async (webview: AutomationWebview) => {
                   consecutiveDoNotApply = 0
                   addLog('Decision unknown; skipping.')
                 }
-              } else if (resp.status === 429) {
-                const wait = retryAfterSeconds(resp)
+              } else if (analysis.status === 429) {
+                const wait = analysis.retryAfter ?? 0
                 addLog(`${wait > 3600 ? 'Daily review' : 'Review'} limit reached. Stopping run. You can start again in about ${formatWait(wait)}.`)
                 setStatus('idle')
                 return
-              } else if (resp.status === 400) {
+              } else if (analysis.status === 400) {
                 consecutiveDoNotApply = 0
                 addLog('Error: missing information. Skipping...')
               } else {

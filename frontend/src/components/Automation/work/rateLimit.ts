@@ -2,7 +2,7 @@ import { api } from '../../../lib/api'
 import { addLog } from './automationStore'
 import { sleep } from './pacing'
 
-const MAX_WAIT_SECONDS = 300
+export const MAX_WAIT_SECONDS = 300
 const MAX_ATTEMPTS = 3
 const DEFAULT_RETRY_AFTER_SECONDS = 60
 

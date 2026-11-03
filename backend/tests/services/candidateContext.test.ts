@@ -6,6 +6,7 @@ const profile = (): ResumedCandidateContext => ({
     resume: {
         resume_text: 'Backend engineer. Node, Postgres, TypeScript.',
         search_terms: ['backend', 'platform'],
+        enrichment_status: 'complete',
     },
     preferences: {
         job_match: 'low',

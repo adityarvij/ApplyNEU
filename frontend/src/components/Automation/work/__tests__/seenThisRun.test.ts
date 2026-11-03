@@ -74,5 +74,6 @@ describe('a posting that surfaces under two search terms', () => {
     expect(view.hits.get('const cardIndex =')).toBe(1)
     expect(analyzed).toBe(1)
     expect(logs.filter(l => l.includes('ALREADY SEEN THIS RUN'))).toHaveLength(1)
+    expect(logs.filter(l => l.endsWith('Search terms: software, backend'))).toHaveLength(1)
   })
 })

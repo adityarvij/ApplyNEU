@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useNavigate } from 'react-router-dom'
 import './automation.css'
 import { suppressErrorRedirect, releaseErrorRedirect } from '../../lib/fetchErrorControl'
 import { getState, subscribe, type SearchTermsBlocker } from './work/automationStore'
@@ -15,6 +16,7 @@ const POLL_MAX_MS = 30000
 const BLOCKED_TITLES: Record<SearchTermsBlocker, string> = {
   'no-resume': 'Upload a resume to start',
   preparing: 'Preparing your job search…',
+  'enrichment-failed': "Couldn't prepare your job search",
   unavailable: "Couldn't load your job search. Retrying…",
 }
 
@@ -25,6 +27,7 @@ const BLOCKED_TITLES: Record<SearchTermsBlocker, string> = {
 export default function Automation() {
   const { status, logs, approvalPrompt, handoffPrompt, searchTermsReady, searchTermsBlocker } =
     useSyncExternalStore(subscribe, getState)
+  const navigate = useNavigate()
   const [isPanelOpen, setIsPanelOpen] = useState(false)
   const logsEndRef = useRef<HTMLDivElement>(null)
 
@@ -45,7 +48,8 @@ export default function Automation() {
   // Screen-scoped on purpose: a run already has the terms it started with.
   // Backs off and pauses while hidden so a stalled enrichment does not spin.
   useEffect(() => {
-    if (searchTermsReady === true) return
+    // A failed enrichment won't fill the terms in by itself; the retry lives in Settings.
+    if (searchTermsReady === true || searchTermsBlocker === 'enrichment-failed') return
     let timer: ReturnType<typeof setTimeout>
     let delay = POLL_MIN_MS
     let stopped = false
@@ -73,7 +77,7 @@ export default function Automation() {
       clearTimeout(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [searchTermsReady])
+  }, [searchTermsReady, searchTermsBlocker])
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -128,6 +132,22 @@ export default function Automation() {
       {searchTermsReady === null && (
         <div className="automation-loading-screen" role="status" aria-label="loading">
           <div className="automation-loading-spinner" aria-hidden="true" />
+        </div>
+      )}
+      {searchTermsBlocker === 'enrichment-failed' && (
+        <div className="handoff-banner" role="alert">
+          <div className="approval-text">
+            <p className="approval-label">job search not ready</p>
+            <p className="approval-job">Couldn't prepare your job search</p>
+            <p className="approval-company">We couldn't get search terms from your resume. Retry it to start.</p>
+          </div>
+          <button
+            type="button"
+            className="handoff-btn"
+            onClick={() => navigate('/settings/resumes')}
+          >
+            retry
+          </button>
         </div>
       )}
       {handoffPrompt && (

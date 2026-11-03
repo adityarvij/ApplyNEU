@@ -67,7 +67,17 @@ export const refreshSearchTerms = async (isPoll = false) => {
     }
 
     const terms: string[] = Array.isArray(resume.search_terms) ? resume.search_terms : []
-    setSearchTerms(terms, terms.length > 0 ? null : 'preparing')
+    if (terms.length > 0) {
+      setSearchTerms(terms, null)
+      return
+    }
+    // Only a pending enrichment is still going to fill the terms in. A failed one, or one
+    // that never started, waits on a retry from Settings → Resumes.
+    const stuck = resume.enrichment_status === 'failed' || resume.enrichment_status === 'none'
+    if (stuck && getState().searchTermsBlocker !== 'enrichment-failed') {
+      addLog("Couldn't prepare your job search from your resume. Retry it in Settings → Resumes.")
+    }
+    setSearchTerms([], stuck ? 'enrichment-failed' : 'preparing')
   } catch (_error) {
     if (!isPoll) addLog('Error occured. Could not get search terms.')
     setSearchTerms([], 'unavailable')

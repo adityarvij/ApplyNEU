@@ -27,7 +27,7 @@ vi.mock('../../../../lib/api', () => {
 
 let contextStatus = 200
 let contextThrows = false
-let contextResume: { resume_text: string; search_terms: string[] } | null
+let contextResume: { resume_text: string; search_terms: string[]; enrichment_status?: string } | null
 
 beforeEach(() => {
   vi.resetModules()
@@ -93,6 +93,35 @@ describe('search terms that are not ready settle instead of staying unchecked', 
     const state = await settle()
 
     expect(state.searchTermsReady).toBe(false)
+    expect(state.searchTermsBlocker).toBe('preparing')
+  })
+
+  it('blocks on enrichment-failed when enrichment failed or never started', async () => {
+    for (const enrichment_status of ['failed', 'none']) {
+      vi.resetModules()
+      contextResume = { resume_text: 'Backend engineer.', search_terms: [], enrichment_status }
+      const state = await settle()
+
+      expect(state.searchTermsReady).toBe(false)
+      expect(state.searchTermsBlocker).toBe('enrichment-failed')
+      expect(state.logs.filter(l => l.includes("Couldn't prepare your job search"))).toHaveLength(1)
+    }
+  })
+
+  it('logs a failed enrichment once across polls', async () => {
+    contextResume = { resume_text: 'Backend engineer.', search_terms: [], enrichment_status: 'failed' }
+    const { refreshSearchTerms } = await import('../searchTerms')
+    const { getState } = await import('../automationStore')
+    await refreshSearchTerms()
+    await refreshSearchTerms(true)
+
+    expect(getState().logs.filter(l => l.includes("Couldn't prepare your job search"))).toHaveLength(1)
+  })
+
+  it('keeps preparing while enrichment is pending', async () => {
+    contextResume = { resume_text: 'Backend engineer.', search_terms: [], enrichment_status: 'pending' }
+    const state = await settle()
+
     expect(state.searchTermsBlocker).toBe('preparing')
   })
 

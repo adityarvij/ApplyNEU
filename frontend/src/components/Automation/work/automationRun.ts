@@ -291,6 +291,7 @@ const runFromDashboard = async (webview: AutomationWebview) => {
   const normalizedTerms = getState().searchTerms
     .map(term => String(term ?? '').trim())
     .filter(Boolean)
+  addLog(`Search terms: ${normalizedTerms.join(', ')}`)
 
   termLoop: for (const term of normalizedTerms) {
     await waitForResume()

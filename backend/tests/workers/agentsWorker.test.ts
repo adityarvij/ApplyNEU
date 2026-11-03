@@ -7,6 +7,7 @@ class Command {
 }
 
 let processor: (job: any, token?: string) => Promise<unknown>;
+let workerOptions: { concurrency?: number };
 const handlers: Record<string, (...args: any[]) => Promise<void>> = {};
 
 const runJobThread = jest.fn<(thread_id: string, input: any) => Promise<unknown>>();
@@ -23,8 +24,9 @@ jest.unstable_mockModule('bullmq', () => ({
     DelayedError,
     UnrecoverableError,
     Worker: class {
-        constructor(_name: string, fn: typeof processor) {
+        constructor(_name: string, fn: typeof processor, opts: typeof workerOptions) {
             processor = fn;
+            workerOptions = opts;
         }
         on(event: string, handler: (...args: any[]) => Promise<void>) {
             handlers[event] = handler;
@@ -187,5 +189,11 @@ describe('failed', () => {
         await handlers.failed!({ name: 'wake', id: 'repeat:wake', data: {}, attemptsMade: 1, opts: {} }, new Error('redis down'));
 
         expect(moveAgentRun).not.toHaveBeenCalled();
+    });
+});
+
+describe('worker options', () => {
+    it('puts no cap on agent jobs across users, leaving the limit to each user\'s num_agents', () => {
+        expect(workerOptions.concurrency).toBe(Number.MAX_SAFE_INTEGER);
     });
 });

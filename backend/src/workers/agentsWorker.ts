@@ -81,6 +81,13 @@ const resume = async (job: Job, token?: string) => {
 };
 
 /**
+ * No cap across users: a run only becomes a job once its user has a free num_agents slot (or,
+ * for the sweep's job, right away), so every job in the queue may run now. BullMQ needs a finite
+ * number, and only fetches jobs that are waiting, so this just never holds one back.
+ */
+const CONCURRENCY = Number.MAX_SAFE_INTEGER;
+
+/**
  * Runs agent threads that were handed one of their user's slots; a run is only enqueued once it
  * holds one, and one cancelled since is dropped. A start runs the graph from the beginning; a
  * resume continues a paused thread with the value the user gave, handed to the paused node as
@@ -102,7 +109,7 @@ const worker = new Worker(AGENTS_QUEUE, async (job, token) => {
     }
 }, {
     connection: bullConnection,
-    concurrency: 5,
+    concurrency: CONCURRENCY,
 });
 
 scheduleWakeStalledAgents().catch((err) => {

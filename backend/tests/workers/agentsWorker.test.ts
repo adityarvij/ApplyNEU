@@ -18,6 +18,7 @@ const getAgentRunByThread = jest.fn<(thread_id: string) => Promise<any>>();
 const moveAgentRun = jest.fn<(run_id: string, from: string[], to: string) => Promise<any>>();
 const enqueueWokenRuns = jest.fn<(runs: any[]) => Promise<void>>();
 const wakeStalledAgents = jest.fn<() => Promise<void>>();
+const expireHumanRequests = jest.fn<() => Promise<unknown>>();
 const scheduleWakeStalledAgents = jest.fn<() => Promise<unknown>>().mockResolvedValue({});
 
 jest.unstable_mockModule('bullmq', () => ({
@@ -42,6 +43,7 @@ jest.unstable_mockModule('../../src/db/index.ts', () => ({ pool: { end: jest.fn(
 jest.unstable_mockModule('../../src/services/agentRun/agentRun.service.ts', () => ({
     getAgentRun, getAgentRunByThread, moveAgentRun,
 }));
+jest.unstable_mockModule('../../src/services/humanRequest/humanRequest.service.ts', () => ({ expireHumanRequests }));
 jest.unstable_mockModule('../../src/utils/shutdown.ts', () => ({ onShutdownSignal: jest.fn(), runShutdown: jest.fn() }));
 
 await import('../../src/workers/agentsWorker.ts');
@@ -63,6 +65,7 @@ beforeEach(() => {
     moveAgentRun.mockReset().mockResolvedValue({ moved: true, woken: NEXT });
     enqueueWokenRuns.mockReset().mockResolvedValue();
     wakeStalledAgents.mockReset().mockResolvedValue();
+    expireHumanRequests.mockReset().mockResolvedValue([]);
     moveToDelayed.mockReset().mockResolvedValue();
     updateData.mockReset().mockResolvedValue();
     jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -162,6 +165,12 @@ describe('wake', () => {
         await processor({ name: 'wake', id: 'repeat:wake', data: {} });
 
         expect(wakeStalledAgents).toHaveBeenCalled();
+    });
+
+    it('expires requests the user did not answer in time', async () => {
+        await processor({ name: 'wake', id: 'repeat:wake', data: {} });
+
+        expect(expireHumanRequests).toHaveBeenCalled();
     });
 });
 

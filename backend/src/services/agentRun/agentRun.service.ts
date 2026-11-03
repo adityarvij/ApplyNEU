@@ -198,6 +198,13 @@ const transaction = async <T>(work: (client: PoolClient) => Promise<T>): Promise
 const lockLine = (client: PoolClient, user_id: string) =>
   client.query(`SELECT pg_advisory_xact_lock(hashtext($1));`, [user_id]);
 
+/** Cancels a finished run's pending request, so the inbox doesn't ask about a run that can't resume. */
+const cancelPendingRequests = (client: PoolClient, run_id: string) =>
+  client.query(
+    `UPDATE human_requests SET status = 'cancelled', resolved_at = now() WHERE run_id = $1 AND status = 'pending';`,
+    [run_id]
+  );
+
 /**
  * Gives each of the user's free slots to the next run in line and moves it to running. Runs
  * waiting on the user don't hold a slot. The line is every queued run plus every paused run the
@@ -262,8 +269,9 @@ export const answerAgentRun = (thread_id: string, step: string, value: unknown):
 
 /**
  * Moves a run between statuses only if it's still in one of `from`, so a run cancelled while
- * a node was running isn't flipped back to done or waiting. In the same transaction, a slot the
- * move frees goes to the next run in line.
+ * a node was running isn't flipped back to done or waiting. In the same transaction, a run that
+ * finishes has its pending request cancelled, and a slot the move frees goes to the next run in
+ * line.
  * @returns whether the run moved, and the runs that took a slot, whose jobs the caller enqueues
  */
 export const moveAgentRun = (
@@ -282,11 +290,14 @@ export const moveAgentRun = (
       `,
       [run_id, from, to]
     );
-    return { moved: (result.rowCount ?? 0) > 0, woken: await fillSlots(client, run.user_id) };
+    const moved = (result.rowCount ?? 0) > 0;
+    if (moved && FINISHED.includes(to)) await cancelPendingRequests(client, run_id);
+    return { moved, woken: await fillSlots(client, run.user_id) };
   });
 
 /**
- * Cancels one of the caller's unfinished runs and hands a slot it frees to the next run in line.
+ * Cancels one of the caller's unfinished runs and its pending request, and hands a slot it frees
+ * to the next run in line.
  * @returns the cancelled run, and the runs that took a slot, whose jobs the caller enqueues
  * @throws AppError(404) when the run doesn't exist or isn't theirs; AppError(409) when it already finished
  */
@@ -307,6 +318,7 @@ export const cancelAgentRun = (run_id: string, user_id: string): Promise<{ run: 
       `,
       [run_id]
     );
+    await cancelPendingRequests(client, run_id);
     return { run: result.rows[0]!, woken: await fillSlots(client, user_id) };
   });
 

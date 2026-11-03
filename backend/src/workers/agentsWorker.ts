@@ -9,6 +9,7 @@ import { AGENTS_QUEUE } from '../queues/agentsQueue.ts';
 import { bullConnection } from '../queues/connection.ts';
 import { pool } from '../db/index.ts';
 import { getAgentRun, getAgentRunByThread, moveAgentRun } from '../services/agentRun/agentRun.service.ts';
+import { expireHumanRequests } from '../services/humanRequest/humanRequest.service.ts';
 import { AppError } from '../errors/AppError.ts';
 import type { AgentRunStatus } from '../types/agentRuns.ts';
 import { onShutdownSignal, runShutdown } from '../utils/shutdown.ts';
@@ -84,7 +85,8 @@ const resume = async (job: Job, token?: string) => {
  * Runs agent threads that were handed one of their user's slots; a run is only enqueued once it
  * holds one, and one cancelled since is dropped. A start runs the graph from the beginning; a
  * resume continues a paused thread with the value the user gave, handed to the paused node as
- * the return value of its interrupt() call. The `wake` job is the periodic safety net.
+ * the return value of its interrupt() call. The `wake` job is the periodic safety net, and also
+ * expires requests the user didn't answer in time.
  */
 const worker = new Worker(AGENTS_QUEUE, async (job, token) => {
     const startedAt = Date.now();
@@ -92,7 +94,10 @@ const worker = new Worker(AGENTS_QUEUE, async (job, token) => {
     try {
         if (job.name === 'start') await start(job, token);
         else if (job.name === 'resume') await resume(job, token);
-        else if (job.name === 'wake') await wakeStalledAgents();
+        else if (job.name === 'wake') {
+            await wakeStalledAgents();
+            await expireHumanRequests();
+        }
         else throw new UnrecoverableError(`Unknown agents job ${job.name}.`);
         console.log(`[agents] ${job.name} ${job.id} finished in ${Date.now() - startedAt}ms`);
     } catch (err) {

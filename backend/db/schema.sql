@@ -45,6 +45,20 @@ CREATE TYPE public.agent_run_status AS ENUM (
     'cancelled'
 );
 
+CREATE TYPE public.human_request_kind AS ENUM (
+    'apply_approval',
+    'submit_approval',
+    'question',
+    'handoff'
+);
+
+CREATE TYPE public.human_request_status AS ENUM (
+    'pending',
+    'resolved',
+    'expired',
+    'cancelled'
+);
+
 CREATE TABLE public.job_applications (
     job_id uuid NOT NULL,
     user_id uuid NOT NULL,
@@ -116,6 +130,23 @@ CREATE TABLE public.agent_runs (
     resume jsonb,
     CONSTRAINT agent_runs_thread_unless_sweep CHECK (type = 'sweep' OR thread_id IS NOT NULL),
     CONSTRAINT agent_runs_job_has_job_id CHECK (type <> 'job' OR job_id IS NOT NULL)
+);
+
+-- One row per time an agent stops to wait on the user: an approval, a question, or a hand-off
+-- of the browser. payload is what the agent shows the user and answer is what the user sent
+-- back, which resumes the run's thread. A run has at most one pending request at a time.
+CREATE TABLE public.human_requests (
+    request_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    run_id uuid NOT NULL,
+    job_id uuid,
+    kind public.human_request_kind NOT NULL,
+    status public.human_request_status DEFAULT 'pending'::public.human_request_status NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    answer jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    resolved_at timestamp with time zone,
+    expires_at timestamp with time zone
 );
 
 CREATE TABLE public.preferences (
@@ -195,6 +226,9 @@ ALTER TABLE ONLY public.agent_runs
 ALTER TABLE ONLY public.agent_runs
     ADD CONSTRAINT agent_runs_thread_id_key UNIQUE (thread_id);
 
+ALTER TABLE ONLY public.human_requests
+    ADD CONSTRAINT human_requests_pkey PRIMARY KEY (request_id);
+
 ALTER TABLE ONLY public.job_matches
     ADD CONSTRAINT job_matches_score_range CHECK (match_score BETWEEN 0 AND 100);
 
@@ -238,6 +272,17 @@ CREATE INDEX idx_agent_runs_line ON public.agent_runs USING btree (user_id, queu
 
 CREATE INDEX idx_agent_runs_parent ON public.agent_runs USING btree (parent_run_id);
 
+-- Serves the inbox: the caller's requests by status, newest first.
+CREATE INDEX idx_human_requests_user_status ON public.human_requests USING btree (user_id, status, created_at DESC);
+
+-- A run asks one thing at a time, so an answer always resumes the pause it was asked for.
+CREATE UNIQUE INDEX human_requests_one_pending_per_run ON public.human_requests USING btree (run_id)
+    WHERE status = 'pending';
+
+-- Serves the sweep that expires pending requests.
+CREATE INDEX idx_human_requests_expiry ON public.human_requests USING btree (expires_at)
+    WHERE status = 'pending' AND expires_at IS NOT NULL;
+
 CREATE UNIQUE INDEX unique_user_job ON public.job_applications USING btree (job_id, user_id);
 
 ALTER TABLE ONLY public.job_applications
@@ -264,6 +309,15 @@ ALTER TABLE ONLY public.agent_runs
 
 ALTER TABLE ONLY public.agent_runs
     ADD CONSTRAINT agent_runs_job_id_fkey FOREIGN KEY (job_id) REFERENCES public.jobs(job_id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.human_requests
+    ADD CONSTRAINT human_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(user_id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.human_requests
+    ADD CONSTRAINT human_requests_run_id_fkey FOREIGN KEY (run_id) REFERENCES public.agent_runs(run_id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.human_requests
+    ADD CONSTRAINT human_requests_job_id_fkey FOREIGN KEY (job_id) REFERENCES public.jobs(job_id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY public.preferences
     ADD CONSTRAINT preferences_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(user_id) ON DELETE CASCADE;
@@ -302,6 +356,7 @@ ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.job_applications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.job_matches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.agent_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.human_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.instruction_extractions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.job_instructions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;

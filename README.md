@@ -106,5 +106,4 @@ stay isolated. Frontend tests run with `npm test` from `frontend/`.
 | `TRUST_PROXY` | Set to `1` behind a load balancer so the API reads the real client IP |
 | `JOB_MATCH_LIMIT_PER_MINUTE` / `_PER_DAY` | Per-user scoring limits, default 20 and 200 |
 | `INSTRUCTIONS_LIMIT_PER_MINUTE` / `_PER_DAY` | Per-user limits on instruction extraction, default 10 and 100 |
-| `AGENTS_CONCURRENCY` | Agent jobs one worker process runs at once across all users, default 50. Each user's own limit is their `num_agents` preference |
 | `PROD_SUPABASE_URL` | Supabase project used when `NODE_ENV=production` |

@@ -81,11 +81,11 @@ const resume = async (job: Job, token?: string) => {
 };
 
 /**
- * How many agent jobs this worker process runs at once, across every user. It only protects the
- * process: each user's own limit is num_agents, enforced by their line, so this has to be well
- * above it or one user's runs hold back everyone else's, including the sweep's job.
+ * No cap across users: a run only becomes a job once its user has a free num_agents slot (or,
+ * for the sweep's job, right away), so every job in the queue may run now. BullMQ needs a finite
+ * number, and only fetches jobs that are waiting, so this just never holds one back.
  */
-const CONCURRENCY = Number(process.env.AGENTS_CONCURRENCY) || 50;
+const CONCURRENCY = Number.MAX_SAFE_INTEGER;
 
 /**
  * Runs agent threads that were handed one of their user's slots; a run is only enqueued once it

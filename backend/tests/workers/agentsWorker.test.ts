@@ -44,9 +44,6 @@ jest.unstable_mockModule('../../src/services/agentRun/agentRun.service.ts', () =
 }));
 jest.unstable_mockModule('../../src/utils/shutdown.ts', () => ({ onShutdownSignal: jest.fn(), runShutdown: jest.fn() }));
 
-// Set before the import so a local backend/.env can't change the default under test; dotenv
-// never overrides a variable that's already set.
-process.env.AGENTS_CONCURRENCY = '';
 await import('../../src/workers/agentsWorker.ts');
 const { AppError } = await import('../../src/errors/AppError.ts');
 
@@ -196,7 +193,7 @@ describe('failed', () => {
 });
 
 describe('worker options', () => {
-    it('runs up to 50 agent jobs at once by default, well above any user\'s num_agents', () => {
-        expect(workerOptions.concurrency).toBe(50);
+    it('puts no cap on agent jobs across users, leaving the limit to each user\'s num_agents', () => {
+        expect(workerOptions.concurrency).toBe(Number.MAX_SAFE_INTEGER);
     });
 });

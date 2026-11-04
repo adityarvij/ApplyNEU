@@ -16,8 +16,8 @@ import Resumes from './components/Settings/resumes'
 import { FetchErrorProvider } from './components/common/FetchError'
 import ComponentLoader from './components/common/ComponentLoader'
 import { setNavigate } from './lib/navigation'
+import { onSessionExpired, takeReturnTo } from './lib/session'
 import { queryClient } from './queries/client'
-import Unauthorized from './components/NotFound/unauthorized'
 import NotFound from './components/NotFound/notfound'
 import ServerError from './components/NotFound/servererror'
 import RequestError from './components/NotFound/requesterror'
@@ -82,7 +82,8 @@ function AuthRoutes({ authError }: { authError: string | null }) {
     <Routes>
       <Route path="/login" element={<Login onNavigateToSignup={() => navigate('/signup')} authError={authError} />} />
       <Route path="/signup" element={<Signup onNavigateToLogin={() => navigate('/login')} />} />
-      <Route path="/401" element={<Unauthorized />} />
+      {/* Old links; a 401 now goes to login. */}
+      <Route path="/401" element={<Navigate to="/login" replace />} />
       <Route path="/404" element={<NotFound />} />
       <Route path="/500" element={<ServerError />} />
       <Route path="/error" element={<RequestError />} />
@@ -95,7 +96,8 @@ function OnboardingRoutes({ onComplete }: { onComplete: () => void }) {
   return (
     <Routes>
       <Route path="/onboarding" element={<Onboarding onComplete={onComplete} />} />
-      <Route path="/401" element={<Unauthorized />} />
+      {/* Old links; a 401 now goes to login. */}
+      <Route path="/401" element={<Navigate to="/login" replace />} />
       <Route path="/404" element={<NotFound />} />
       <Route path="/500" element={<ServerError />} />
       <Route path="/error" element={<RequestError />} />
@@ -123,7 +125,8 @@ function AppRoutes() {
       <Route path="/onboarding" element={<Navigate to="/" replace />} />
       <Route path="/login" element={<Navigate to="/" replace />} />
       <Route path="/signup" element={<Navigate to="/" replace />} />
-      <Route path="/401" element={<Unauthorized />} />
+      {/* Old links; a 401 now goes to login. */}
+      <Route path="/401" element={<Navigate to="/login" replace />} />
       <Route path="/404" element={<NotFound />} />
       <Route path="/500" element={<ServerError />} />
       <Route path="/error" element={<RequestError />} />
@@ -140,6 +143,7 @@ function App() {
   const navigate = useNavigate()
 
   useEffect(() => { setNavigate(navigate) }, [navigate])
+  useEffect(() => { onSessionExpired(setAuthError) }, [])
 
   useEffect(() => {
     window.electronAPI?.onOAuthCallback?.(async (url: string) => {
@@ -181,6 +185,13 @@ function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') queryClient.clear()
+      if (event === 'SIGNED_IN') {
+        setAuthError(null)
+        // Back to where the session expired. Navigating before the route tree flips
+        // keeps /login's redirect to home from winning.
+        const returnTo = takeReturnTo()
+        if (returnTo) navigate(returnTo, { replace: true })
+      }
       setUser(session?.user ?? null)
 
       if (session?.user) {

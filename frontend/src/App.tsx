@@ -16,7 +16,7 @@ import Resumes from './components/Settings/resumes'
 import { FetchErrorProvider } from './components/common/FetchError'
 import ComponentLoader from './components/common/ComponentLoader'
 import { setNavigate } from './lib/navigation'
-import { onSessionExpired, takeReturnTo } from './lib/session'
+import { onSessionExpired } from './lib/session'
 import { queryClient } from './queries/client'
 import NotFound from './components/NotFound/notfound'
 import ServerError from './components/NotFound/servererror'
@@ -185,13 +185,7 @@ function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') queryClient.clear()
-      if (event === 'SIGNED_IN') {
-        setAuthError(null)
-        // Back to where the session expired. Navigating before the route tree flips
-        // keeps /login's redirect to home from winning.
-        const returnTo = takeReturnTo()
-        if (returnTo) navigate(returnTo, { replace: true })
-      }
+      if (event === 'SIGNED_IN') setAuthError(null)
       setUser(session?.user ?? null)
 
       if (session?.user) {

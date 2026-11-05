@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { AuthApiError, AuthRetryableFetchError } from '@supabase/supabase-js'
 
 const signOut = vi.fn(async () => ({ error: null }))
 const refreshSession = vi.fn()
@@ -15,17 +16,17 @@ const renewsTo = (token: string | null) =>
   refreshSession.mockResolvedValue(
     token
       ? { data: { session: { access_token: token } }, error: null }
-      : { data: { session: null }, error: new Error('refresh token expired') }
+      : { data: { session: null }, error: new AuthApiError('Invalid Refresh Token', 400, 'refresh_token_not_found') }
   )
 
 const setup = async (...statuses: number[]) => {
   const original = vi.fn<typeof fetch>()
   for (const status of statuses) original.mockResolvedValueOnce(response(status))
   const { wrapFetch } = await import('../FetchError')
-  const session = await import('../../../lib/session')
+  const { onSessionExpired } = await import('../../../lib/session')
   const shown: string[] = []
-  session.onSessionExpired((message) => shown.push(message))
-  return { fetch: wrapFetch(original), original, session, shown }
+  onSessionExpired((message) => shown.push(message))
+  return { fetch: wrapFetch(original), original, shown }
 }
 
 const authHeader = (call: Parameters<typeof fetch>) => new Headers(call[1]?.headers).get('Authorization')
@@ -33,7 +34,6 @@ const authHeader = (call: Parameters<typeof fetch>) => new Headers(call[1]?.head
 beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
-  window.location.hash = '#/automation'
 })
 
 describe('a 401 from the backend', () => {
@@ -83,35 +83,25 @@ describe('a 401 from the backend', () => {
     expect(signOut).toHaveBeenCalledTimes(1)
   })
 
-  it('remembers the page to return to after signing in, once', async () => {
-    renewsTo(null)
-    const { fetch, session } = await setup(401)
+  it("keeps the user signed in when the refresh can't reach Supabase", async () => {
+    refreshSession.mockResolvedValue({ data: { session: null }, error: new AuthRetryableFetchError('Failed to fetch', 0) })
+    const { fetch, original } = await setup(401)
 
-    await fetch(`${API}/me/context`)
+    const res = await fetch(`${API}/me/context`)
 
-    expect(session.takeReturnTo()).toBe('/automation')
-    expect(session.takeReturnTo()).toBeNull()
+    expect(res.status).toBe(401)
+    expect(original).toHaveBeenCalledTimes(1)
+    expect(signOut).not.toHaveBeenCalled()
   })
 
-  it('keeps the saved page when a later request fails from the login screen', async () => {
-    renewsTo(null)
-    const { fetch, session } = await setup(401, 401)
+  it("keeps the user signed in when the retry can't be verified either", async () => {
+    renewsTo('fresh-token')
+    const { fetch } = await setup(401, 503)
 
-    await fetch(`${API}/a`)
-    window.location.hash = '#/login'
-    await fetch(`${API}/b`)
+    const res = await fetch(`${API}/me/context`)
 
-    expect(session.takeReturnTo()).toBe('/automation')
-  })
-
-  it("doesn't return to an auth or error page", async () => {
-    renewsTo(null)
-    window.location.hash = '#/onboarding'
-    const { fetch, session } = await setup(401)
-
-    await fetch(`${API}/me/context`)
-
-    expect(session.takeReturnTo()).toBeNull()
+    expect(res.status).toBe(503)
+    expect(signOut).not.toHaveBeenCalled()
   })
 
   it('leaves non-backend requests alone', async () => {

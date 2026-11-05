@@ -23,14 +23,8 @@ const isOnErrorPage = () => {
 
 type Fetch = typeof window.fetch
 
-/**
- * Resends a request the backend rejected once, with a renewed token. A token can expire
- * in flight or while the laptop sleeps without the session being over.
- * @returns the retried response, or null when the session can't be renewed
- */
-const retryWithFreshToken = async (originalFetch: Fetch, [input, init]: Parameters<Fetch>) => {
-  const token = await refreshAccessToken()
-  if (!token) return null
+/** Resends a request with a renewed token. */
+const resend = (originalFetch: Fetch, [input, init]: Parameters<Fetch>, token: string) => {
   const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
   headers.set('Authorization', `Bearer ${token}`)
   return originalFetch(input, { ...init, headers })
@@ -39,6 +33,7 @@ const retryWithFreshToken = async (originalFetch: Fetch, [input, init]: Paramete
 /**
  * Wraps fetch so backend calls get the app's error handling: a 401 is retried once with a
  * renewed token and otherwise sends the user to login, and other failures show /error.
+ * A token can expire in flight or while the laptop sleeps without the session being over.
  */
 export const wrapFetch = (originalFetch: Fetch): Fetch => async (...args) => {
   // Leave non-backend requests (Supabase, external) completely untouched.
@@ -48,9 +43,11 @@ export const wrapFetch = (originalFetch: Fetch): Fetch => async (...args) => {
   try {
     let res = await originalFetch(...args)
     if (res.status === 401) {
-      res = (await retryWithFreshToken(originalFetch, args)) ?? res
-      // The backend only answers 401 for a missing, invalid or expired token.
-      if (res.status === 401) {
+      const refreshed = await refreshAccessToken()
+      if (refreshed.status === 'renewed') res = await resend(originalFetch, args, refreshed.token)
+      // Sign out only when the session is really over. When Supabase can't be reached, the
+      // request fails like any other and the user stays signed in.
+      if (refreshed.status === 'expired' || (refreshed.status === 'renewed' && res.status === 401)) {
         await expireSession()
         return res
       }

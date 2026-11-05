@@ -16,6 +16,20 @@ const getJwks = () => {
   return jwks;
 };
 
+// jose error codes that mean the token itself is bad. Anything else (the key set timing
+// out or failing to download) means we couldn't check the token, not that it's invalid.
+const INVALID_TOKEN_CODES = new Set([
+  'ERR_JWT_EXPIRED',
+  'ERR_JWT_INVALID',
+  'ERR_JWT_CLAIM_VALIDATION_FAILED',
+  'ERR_JWS_INVALID',
+  'ERR_JWS_SIGNATURE_VERIFICATION_FAILED',
+  'ERR_JOSE_ALG_NOT_ALLOWED',
+  'ERR_JOSE_NOT_SUPPORTED',
+  'ERR_JWKS_NO_MATCHING_KEY',
+  'ERR_JWKS_MULTIPLE_MATCHING_KEYS',
+]);
+
 export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
   const keys = getJwks();
   if (!keys) {
@@ -40,7 +54,14 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     req.auth = { userId: callerId };
     next();
   } catch (err) {
-    console.log('[authenticate] jwt verification failed:', err instanceof Error ? err.message : err);
-    res.status(401).json({ message: 'Unauthorized.' });
+    const code = (err as { code?: string } | null)?.code;
+    if (code && INVALID_TOKEN_CODES.has(code)) {
+      console.log('[authenticate] jwt verification failed:', err instanceof Error ? err.message : err);
+      res.status(401).json({ message: 'Unauthorized.' });
+      return;
+    }
+    // A 401 would sign the user out over a network hiccup.
+    console.error('[authenticate] could not verify token:', err instanceof Error ? err.message : err);
+    res.status(503).json({ message: 'Could not verify your session. Please try again.' });
   }
 };

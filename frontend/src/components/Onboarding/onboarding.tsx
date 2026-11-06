@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import { expireSession } from '../../lib/session'
 import { api } from '../../lib/api'
 import { suppressErrorRedirect, releaseErrorRedirect } from '../../lib/fetchErrorControl'
 import './onboarding.css'
@@ -23,7 +23,6 @@ interface OnboardingProps {
 }
 
 export default function Onboarding({ onComplete }: OnboardingProps) {
-  const navigate = useNavigate()
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [stepError, setStepError] = useState<string | null>(null)
@@ -193,7 +192,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
         setLoading(false)
-        navigate('/401')
+        await expireSession()
         return
       }
       const updated = await updateJobTypes()
@@ -216,7 +215,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       setLoading(false)
-      navigate('/401')
+      await expireSession()
       return
     }
     if (!resumeId) {

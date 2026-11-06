@@ -15,9 +15,12 @@ const hmacSecret = new TextEncoder().encode('a-shared-secret-of-at-least-32-byte
 // Native ESM: mocks must be registered with unstable_mockModule and the modules
 // under test pulled in via dynamic import() afterwards so the mocks take effect.
 // Only the remote key-set fetch is stubbed; verification itself is not.
+// Stands in for the key set failing to download (Supabase unreachable).
+let keySetError: Error | null = null;
 jest.unstable_mockModule('jose', () => ({
   createRemoteJWKSet: () => projectKeys.publicKey,
-  jwtVerify,
+  jwtVerify: (...args: Parameters<typeof jwtVerify>) =>
+    keySetError ? Promise.reject(keySetError) : jwtVerify(...args),
 }));
 
 const { authenticate } = await import('../../../src/controller/middleware/authenticate.ts');
@@ -48,6 +51,7 @@ const sign = async (
 describe('authenticate', () => {
   beforeEach(() => {
     process.env.DEV_SUPABASE_URL = SUPABASE_URL;
+    keySetError = null;
   });
 
   it('rejects when there is no Authorization header', async () => {
@@ -135,6 +139,32 @@ describe('authenticate', () => {
     await authenticate(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed token', async () => {
+    const res = makeRes();
+    const next = jest.fn();
+
+    await authenticate(makeReq('Bearer not-a-jwt'), res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['the key set fetch times out', Object.assign(new Error('request timed out'), { code: 'ERR_JWKS_TIMEOUT' })],
+    ['Supabase is unreachable', new TypeError('fetch failed')],
+  ])('answers 503, not 401, when %s', async (_case, error) => {
+    keySetError = error;
+    const token = await sign(USER_ID, projectKeys.privateKey);
+    const res = makeRes();
+    const next = jest.fn();
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await authenticate(makeReq(`Bearer ${token}`), res, next);
+
+    expect(res.status).toHaveBeenCalledWith(503);
     expect(next).not.toHaveBeenCalled();
   });
 });
